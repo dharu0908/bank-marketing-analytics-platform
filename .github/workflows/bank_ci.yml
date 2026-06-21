@@ -1,0 +1,34 @@
+name: Bank Marketing CI
+
+on:
+  push:
+    branches: [main, master]
+
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate Project Structure
+        run: |
+          test -f README.md
+          test -d notebooks
+          echo "Project structure validated"
+
+      - name: Validate Notebooks
+        run: |
+          ls notebooks
+
+          test -f notebooks/00_data_quality_checks.ipynb
+          test -f notebooks/04_ml_training.ipynb
+          test -f notebooks/05_kmeans.ipynb
+          test -f notebooks/06_model_performance.ipynb
+
+          echo "All required notebooks found"
+          
