@@ -1,123 +1,326 @@
 # Bank Marketing Analytics Platform
 
-A Portuguese bank was spending €1.2M a year on telemarketing campaigns and only converting 11% of customers. This project looks at why, finds who actually converts, and builds a pipeline to help the marketing team make better decisions.
+## Overview
+
+A Portuguese bank was spending millions on telemarketing campaigns but converting only a small percentage of customers into term-deposit subscribers.
+
+The challenge was not collecting more data—it was identifying:
+
+- Which customers are most likely to subscribe
+- Which campaigns generate the highest conversion rates
+- Which customer segments should be prioritized
+- Where marketing spend is being wasted
+
+This project builds an end-to-end analytics platform using Databricks, PySpark, Delta Lake, Machine Learning, and Workflow Orchestration to transform raw campaign data into actionable business insights.
 
 ---
 
-## What this project does
+## Business Problem
 
-Takes the UCI Bank Marketing dataset (45,211 customer records) and runs it through a full data engineering pipeline on Databricks. The end result is a star schema with ML-generated probability scores and customer cluster labels that the marketing team can use to prioritise who to call.
+The bank's marketing team was contacting thousands of customers without a clear targeting strategy.
 
-The stack is PySpark, Databricks, Delta Lake, and Apache Airflow for orchestration.
+Key challenges included:
 
----
+- Low overall conversion rate (11.7%)
+- Inefficient campaign timing
+- Excessive customer contact attempts
+- Lack of customer prioritization
+- No data-driven segmentation strategy
 
-## The findings that actually matter
+The goal was to build a scalable analytics platform capable of:
 
-**Timing is everything.** The bank runs most of its campaigns in May which has a 6.7% conversion rate. March has a 52% conversion rate and gets almost no calls. Just shifting budget to March, September, October and December would dramatically change results without changing anything else.
-
-**Stop calling people after 3 attempts.** Conversion drops consistently after the third call and hits near zero after six. There are 9,641 calls in this dataset made beyond the third attempt at a 7.35% conversion rate. That is roughly €252K in wasted spend annually.
-
-**Previous success is the strongest signal.** If a customer subscribed in a previous campaign they convert at 64.7% — six times the baseline. These 1,511 customers should be the first ones called in every new campaign, not treated the same as everyone else.
-
-**Unknown contact type is a silent budget drain.** 13,020 calls — 29% of the total — have no recorded contact method and convert at 4%. The bank is spending money on calls it isn't even tracking properly.
-
-**Who actually subscribes:** students (28.7%), retired customers (22.8%), senior age group (18.5%), single marital status (15%), and tertiary education (15%). Blue-collar workers are the largest group called and convert at 7.4% — below half the average.
-
----
-
-## ML results
-
-Trained both Logistic Regression and Random Forest using PySpark MLlib.
-
-| | Logistic Regression | Random Forest |
-|---|---|---|
-| AUC-ROC | 0.8717 | 0.8863 |
-| Precision | 0.8946 | 0.8975 |
-| Recall | 0.8243 | 0.8164 |
-| F1 | 0.8473 | 0.8421 |
-
-Random Forest won on AUC-ROC and Precision so that is what is used to generate the final probability scores.
-
-The lift is significant. If you call only the top 20% of customers ranked by predicted probability you get a 33% conversion rate instead of 11%, and capture 74% of all conversions from 20% of the calls.
-
-One honest note: call duration is the strongest feature by importance (via contact_efficiency) but it is only known after the call ends. In a real production system you would retrain without it for pre-call targeting.
+1. Identifying high-value customer segments
+2. Predicting customer subscription probability
+3. Optimizing campaign targeting
+4. Reducing marketing waste
+5. Improving campaign ROI
 
 ---
 
-## Customer segments (KMeans, k=6)
+## Dataset
 
-The elbow method pointed to 6 as the optimal number of clusters. Cost increased at k=7 so 6 was the stopping point.
+**Source:** UCI Bank Marketing Dataset
 
-| Cluster | Label | Size | Conversion |
-|---|---|---|---|
-| 3 | Loyal Engaged | 1,380 | 26.2% |
-| 0 | Warm Prospects | 6,146 | 13.8% |
-| 2 | Average Customers | 15,132 | 12.9% |
-| 4 | Passive Customers | 14,671 | 10.9% |
-| 1 | Over-contacted | 7,044 | 7.1% |
-| 5 | Wasted Spend | 838 | 3.2% |
-
-Cluster 3 is 100% previously contacted with an average of 8.8 prior contacts — these are warm repeat customers and should be prioritised. Cluster 5 has an average of 19 calls per customer with zero prior contact history and a 3.2% conversion rate — these should be deprioritised immediately.
+| Metric | Value |
+|----------|----------|
+| Records | 45,211 |
+| Features | 17 |
+| Positive Conversions | 5,289 |
+| Baseline Conversion Rate | 11.7% |
 
 ---
 
-## Data pipeline
+## Solution Architecture
 
-The pipeline follows a medallion architecture on Databricks.
+The platform follows a Medallion Architecture implemented in Databricks.
 
-Raw CSV lands in the Bronze layer as a Delta table. Silver cleans it — fixes the pdays sentinel value where -1 means never contacted, caps outliers in balance and campaign, handles unknown values in job and education, and adds a log transform to balance. Gold adds engineered features and organises everything into a star schema.
-
+```text
+Raw Dataset
+      │
+      ▼
+ Bronze Layer
+      │
+      ▼
+ Silver Layer
+(Data Cleaning + Validation)
+      │
+      ▼
+ Gold Layer
+(Feature Engineering)
+      │
+      ▼
+ Machine Learning
+      │
+      ▼
+ Customer Segmentation
+      │
+      ▼
+ Business Reporting
 ```
-bank_silver         cleaned and validated data
-bank_gold           feature engineered
-bank_dim_customer   demographics + cluster label
-bank_dim_campaign   contact metrics
-bank_dim_date       day, month, quarter
-bank_fact_marketing conversions, cost, predicted_prob, predicted_label
-```
-
-The Airflow DAG in airflow/bank_telemarketing_dag.py orchestrates all five notebooks in sequence on a monthly schedule. In production this would trigger automatically when new campaign data arrives and email the marketing team when the pipeline completes.
 
 ---
 
-## How to run it
+## Workflow Orchestration
 
-You need a Databricks account. Community Edition works fine.
+The entire pipeline is orchestrated using Databricks Workflows.
 
-```
-git clone https://github.com/dharu0908/bank-marketing-analytics-platform
-```
+The workflow automates:
 
-Upload bank-full.csv to your Databricks DBFS at /mnt/bank/bronze/ then run the notebooks in order:
+- Data quality validation
+- Data cleaning
+- Exploratory analysis
+- Feature engineering
+- Model performance reporting
 
-```
-01_silver_cleaning.py
-02_eda.py
-03_feature_engineering.py
-04_ml_training.py
-05_clustering.py
-```
-
-For Airflow, copy airflow/bank_telemarketing_dag.py to your dags folder and update the job_id values with your actual Databricks Job IDs from Workflows.
+![Workflow Pipeline](screenshots/workflow_pipeline.png)
 
 ---
 
-## Project structure
+## Data Quality Validation
 
-```
+Before any analytics or machine learning, the dataset is validated for consistency and completeness.
+
+Validation checks include:
+
+- Duplicate detection
+- Missing value validation
+- Target distribution validation
+- Dataset profiling
+
+### Results
+
+- 45,211 records validated
+- 0 duplicate records detected
+- 0 critical missing values
+- 17 business attributes analyzed
+
+![Data Quality Checks](screenshots/data_quality_checks.png)
+
+---
+
+## Feature Engineering
+
+Several business-focused features were engineered to improve model performance.
+
+Examples include:
+
+- Contact efficiency
+- Campaign intensity
+- Previous campaign engagement
+- Balance transformations
+- Temporal campaign attributes
+
+### Most Important Features
+
+The machine learning model identified the following features as the strongest predictors of customer conversion:
+
+![Feature Importance](screenshots/feature_importance.png)
+
+### Key Finding
+
+Contact efficiency was the strongest predictor of subscription likelihood, followed by campaign timing and previous customer engagement.
+
+---
+
+## Machine Learning
+
+Two classification models were trained using PySpark MLlib:
+
+- Logistic Regression
+- Random Forest
+
+### Model Performance
+
+| Model | AUC-ROC | Precision | Recall | F1 Score |
+|---------|---------|---------|---------|---------|
+| Logistic Regression | 0.8717 | 0.8946 | 0.8243 | 0.8473 |
+| Random Forest | 0.8863 | 0.8975 | 0.8164 | 0.8421 |
+
+![Model Performance](screenshots/model_performance.png)
+
+### Selected Model
+
+Random Forest achieved the highest AUC-ROC and was selected for customer propensity scoring.
+
+---
+
+## Customer Segmentation
+
+K-Means clustering was applied to identify distinct customer groups based on campaign behavior and customer characteristics.
+
+### Segment Summary
+
+| Segment | Customers | Conversion Rate |
+|----------|----------:|----------:|
+| Loyal Engaged | 1,380 | 26.23% |
+| Warm Prospects | 6,146 | 13.83% |
+| Average Customers | 15,132 | 12.87% |
+| Passive Customers | 14,671 | 10.93% |
+| Over-contacted | 7,044 | 7.08% |
+| Wasted Spend | 838 | 3.22% |
+
+![Customer Segmentation](screenshots/customer_segmentation.png)
+
+### Key Findings
+
+#### Loyal Engaged
+
+- Highest conversion rate (26.23%)
+- 100% previously contacted customers
+- Strongest segment for future targeting
+
+#### Warm Prospects
+
+- Above-average conversion performance
+- Good candidates for future campaigns
+
+#### Wasted Spend
+
+- Lowest conversion rate (3.22%)
+- Extremely high average contact frequency
+- Strong indication of marketing inefficiency
+
+---
+
+## Propensity Scoring and Decile Analysis
+
+Customers were ranked by predicted probability of conversion.
+
+The ranked customer list enables marketing teams to prioritize outreach toward the highest-value customers.
+
+![Decile Analysis](screenshots/decile_analysis.png)
+
+### Results
+
+| Decile | Conversion Rate |
+|----------|----------:|
+| Top 10% | 53.64% |
+| Bottom 10% | 0.07% |
+
+### Business Impact
+
+The highest-probability customers converted more than 750 times better than the lowest-probability customers.
+
+This demonstrates the value of targeted campaigns compared to blanket outreach strategies.
+
+---
+
+## Business Insights
+
+### Campaign Timing Matters
+
+Most calls were placed during May despite relatively low conversion performance.
+
+Several lower-volume months achieved significantly higher conversion rates and represent opportunities for improved budget allocation.
+
+### Contact Fatigue Exists
+
+Conversion rates declined rapidly after three contact attempts.
+
+Repeated outreach generated diminishing returns and increased marketing costs.
+
+### Previous Success Predicts Future Success
+
+Customers who responded positively to previous campaigns were significantly more likely to subscribe again.
+
+These customers should be prioritized in future campaigns.
+
+### Resource Optimization
+
+The combination of machine learning and customer segmentation enables:
+
+- Better campaign targeting
+- Reduced marketing waste
+- Improved customer prioritization
+- Higher conversion efficiency
+
+---
+
+## Technology Stack
+
+| Layer | Technology |
+|---------|------------|
+| Processing | PySpark |
+| Analytics Platform | Databricks |
+| Storage | Delta Lake |
+| Workflow Orchestration | Databricks Workflows |
+| Machine Learning | PySpark MLlib |
+| Customer Segmentation | K-Means |
+| Data Quality | PySpark Validation Framework |
+| Version Control | Git |
+| Repository Hosting | GitHub |
+| CI/CD | GitHub Actions |
+
+---
+
+## Project Structure
+
+```text
 bank-marketing-analytics-platform/
-  notebooks/
-    01_silver_cleaning.py
-    02_eda.py
-    03_feature_engineering.py
-    04_ml_training.py
-    05_clustering.py
-  airflow/
-    bank_telemarketing_dag.py
-  README.md
+│
+├── notebooks/
+│   ├── 00_data_quality_checks
+│   ├── 01_bronze_to_silver_cleaning
+│   ├── 02_eda
+│   ├── 03_feature_engineering
+│   ├── 04_ml_training
+│   ├── 05_kmeans
+│   └── 06_model_performance
+│
+├── screenshots/
+│   ├── workflow_pipeline.png
+│   ├── data_quality_checks.png
+│   ├── feature_importance.png
+│   ├── model_performance.png
+│   ├── customer_segmentation.png
+│   └── decile_analysis.png
+│
+├── .github/
+│   └── workflows/
+│
+└── README.md
 ```
 
 ---
 
-Dataset from the UCI Machine Learning Repository — Bank Marketing Dataset.
+## Key Outcomes
+
+The platform successfully demonstrates:
+
+- End-to-end data engineering on Databricks
+- Data quality validation and monitoring
+- Feature engineering using PySpark
+- Machine learning-based customer propensity scoring
+- Customer segmentation using K-Means clustering
+- Workflow orchestration using Databricks Workflows
+- CI/CD integration using GitHub Actions
+
+Most importantly, the project shows how data engineering and machine learning can be combined to improve campaign targeting, reduce marketing waste, and support data-driven decision making.
+
+---
+
+## Dataset
+
+UCI Machine Learning Repository – Bank Marketing Dataset
+
+https://archive.ics.uci.edu/ml/datasets/bank+marketing
